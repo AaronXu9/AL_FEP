@@ -1,0 +1,61 @@
+# Target-specific configuration for 7JVR
+
+target_info:
+  pdb_id: "7JVR"
+  name: "SARS-CoV-2 Main Protease"
+  description: "SARS-CoV-2 Main protease in complex with inhibitor"
+  resolution: 1.25  # Angstrom
+  organism: "SARS-CoV-2"
+  
+# Binding site definition
+binding_site:
+  center: [10.5, -7.2, 15.8]  # x, y, z coordinates
+  size: [20.0, 20.0, 20.0]    # search space dimensions
+  residues: ["HIS41", "CYS145", "MET49", "PRO168", "GLN189", "THR190", "ALA191"]
+  
+# Target-specific molecular constraints
+molecular_constraints:
+  mw_range: [200, 600]        # Molecular weight range
+  logp_range: [-1, 5]         # LogP range
+  hbd_max: 5                  # Max hydrogen bond donors
+  hba_max: 10                 # Max hydrogen bond acceptors
+  rotatable_bonds_max: 10     # Max rotatable bonds
+  tpsa_max: 140              # Max topological polar surface area
+
+# Docking settings for 7JVR
+docking:
+  receptor_file: "data/targets/7jvr/7jvr_prepared.pdbqt"
+  center_x: 10.5
+  center_y: -7.2
+  center_z: 15.8
+  size_x: 20.0
+  size_y: 20.0
+  size_z: 20.0
+  exhaustiveness: 12
+  num_poses: 20
+  
+# FEP settings for 7JVR  
+fep:
+  receptor_file: "data/targets/7jvr/7jvr_system.pdb"
+  force_field: "amber14"
+  water_model: "tip3p"
+  box_padding: 12.0  # Angstrom
+  ion_concentration: 0.15  # M NaCl
+  
+# Known actives for validation
+known_actives:
+  - "CC(C)CC(NC(=O)C(NC(=O)OC(C)(C)C)C(C)C)C(=O)NC1CCCCC1"  # Example SMILES
+  - "CCN(CC)CCCC(C)NC1=C2N=CC=NC2=NC=N1"  # Another example
+  
+# Chemical series of interest
+chemical_series:
+  - "peptidomimetics"
+  - "small_molecule_inhibitors"
+  - "covalent_inhibitors"
+  
+# Reference compounds
+reference_compounds:
+  cocrystal_ligand: "CCN(CC)CCCC(C)NC1=C2N=CC=NC2=NC=N1"
+  positive_controls: 
+    - "nirmatrelvir"
+    - "pf-07321332"

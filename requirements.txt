@@ -1,0 +1,20 @@
+# Additional pip packages not available in conda
+wandb>=0.17.0
+stable-baselines3>=2.0.0
+mols2grid>=1.1.0
+selfies>=2.1.0
+deepchem>=2.7.0
+dgl>=1.0.0
+dgllife>=0.3.0
+mol2vec>=0.1
+chembl-webresource-client>=0.10.0
+prody>=2.4.0
+plip>=2.2.0
+biopandas>=0.4.0
+prolif>=2.0.0
+fegrow>=1.0.0
+meeko>=0.4.0
+oddt>=0.7.0
+# pytorch-geometric - install separately with: pip install torch-geometric
+# vina - install separately or use conda-forge
+# ray[tune] - install separately

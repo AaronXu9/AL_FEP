@@ -1,0 +1,61 @@
+# Default configuration for AL-FEP experiments
+
+# Global settings
+project_name: "AL_FEP"
+random_seed: 42
+logging_level: "INFO"
+output_dir: "data/results"
+
+# Molecular settings
+molecular:
+  max_atoms: 50
+  max_heavy_atoms: 35
+  fingerprint_type: "morgan"
+  fingerprint_radius: 2
+  fingerprint_bits: 2048
+
+# Active Learning settings
+active_learning:
+  initial_pool_size: 1000
+  batch_size: 10
+  max_iterations: 50
+  acquisition_function: "uncertainty"
+  diversity_weight: 0.1
+
+# Reinforcement Learning settings
+reinforcement_learning:
+  algorithm: "ppo"
+  total_timesteps: 100000
+  learning_rate: 3e-4
+  batch_size: 64
+  n_epochs: 10
+  clip_range: 0.2
+  gamma: 0.99
+  gae_lambda: 0.95
+
+# Oracle settings
+oracles:
+  timeout: 300  # seconds
+  max_retries: 3
+  parallel_jobs: 4
+
+# Docking settings
+docking:
+  software: "vina"
+  exhaustiveness: 8
+  num_poses: 9
+  energy_range: 3.0
+  
+# FEP settings
+fep:
+  engine: "openmm"
+  num_lambda_windows: 12
+  simulation_time: 5  # ns
+  temperature: 298.15  # K
+  pressure: 1.0  # bar
+
+# ML-FEP settings
+ml_fep:
+  model_type: "ensemble"
+  uncertainty_threshold: 0.5
+  retrain_frequency: 100
