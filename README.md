@@ -1,6 +1,19 @@
 # AL-FEP: Active Learning for Free Energy Perturbation in Molecular Virtual Screening
 
-A comprehensive framework for applying active learning and reinforcement learning to molecular virtual screening, with a focus on FEP (Free Energy Perturbation) and docking oracles for target 7JVR.
+[![CI/CD Pipeline](https://github.com/yourusername/AL_FEP/workflows/CI/CD%20Pipeline/badge.svg)](https://github.com/yourusername/AL_FEP/actions)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
+[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+
+A comprehensive framework for applying active learning and reinforcement learning to molecular virtual screening, with a focus on FEP (Free Energy Perturbation) and docking oracles for target 7JVR (SARS-CoV-2 Main Protease).
+
+## 🚀 Quick Start
+
+### Clone Repository
+```bash
+git clone https://github.com/yourusername/AL_FEP.git
+cd AL_FEP
+```
 
 ## Project Overview
 
@@ -135,27 +148,89 @@ All experiments are configured via YAML files in `config/`:
 - Target-specific in `config/targets/7jvr.yaml`
 - Experiment-specific in `config/experiments/`
 
-## Development
+## 🌐 Remote Deployment
+
+### GitHub Repository Setup
+
+This project is ready for GitHub deployment with:
+- ✅ Git repository initialized
+- ✅ Comprehensive `.gitignore` for Python/scientific computing
+- ✅ GitHub Actions CI/CD pipeline
+- ✅ Pre-commit hooks for code quality
+- ✅ Issue and PR templates
+
+### Deploy to Remote Server
+
+1. **Clone on remote server:**
+   ```bash
+   git clone https://github.com/yourusername/AL_FEP.git
+   cd AL_FEP
+   ```
+
+2. **Setup environment:**
+   ```bash
+   conda env create -f environment.yml
+   conda activate al_fep
+   pip install -e .
+   ```
+
+3. **Run tests to verify:**
+   ```bash
+   python -m pytest tests/ -v
+   ```
+
+For detailed deployment instructions, see [DEPLOYMENT.md](DEPLOYMENT.md).
+
+## 🛠 Development
+
+### Code Quality Tools
+```bash
+# Install development dependencies
+pip install -e ".[dev]"
+
+# Setup pre-commit hooks
+pre-commit install
+
+# Run all quality checks
+black src/ tests/           # Code formatting
+isort src/ tests/           # Import sorting  
+flake8 src/ tests/          # Linting
+mypy src/                   # Type checking
+```
 
 ### Running Tests
 ```bash
 pytest tests/ -v --cov=src/al_fep
 ```
 
-### Code Formatting
-```bash
-black src/ tests/
-flake8 src/ tests/
-```
+### Contributing
+Please read [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on contributing to this project.
 
-### Type Checking
-```bash
-mypy src/al_fep
-```
+## 📈 CI/CD Pipeline
 
-## License
+The project includes a comprehensive GitHub Actions pipeline that:
+- Tests across Python 3.9, 3.10, 3.11 on Ubuntu and macOS
+- Runs linting, formatting, and type checking
+- Performs security vulnerability scanning
+- Builds and validates the package
 
-MIT License - see LICENSE file for details.
+## 📄 License
+
+MIT License - see [LICENSE](LICENSE) file for details.
+
+## 📞 Support
+
+- 📖 Documentation: See notebooks and docstrings
+- 🐛 Issues: [GitHub Issues](https://github.com/yourusername/AL_FEP/issues)
+- 💬 Discussions: [GitHub Discussions](https://github.com/yourusername/AL_FEP/discussions)
+- 📧 Contact: your.email@example.com
+
+## 🏆 Acknowledgments
+
+- RDKit for molecular handling
+- OpenMM for molecular dynamics
+- AutoDock Vina for docking
+- PyTorch for machine learning
 
 ## Citation
 
