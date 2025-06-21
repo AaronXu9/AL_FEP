@@ -106,7 +106,7 @@ class MolecularFeaturizer:
         descriptors['Kappa1'] = Descriptors.Kappa1(mol)
         descriptors['Kappa2'] = Descriptors.Kappa2(mol)
         descriptors['Kappa3'] = Descriptors.Kappa3(mol)
-        descriptors['FractionCsp3'] = Descriptors.FractionCsp3(mol)
+        descriptors['FractionCsp3'] = Descriptors.FractionCSP3(mol)
         descriptors['NumSaturatedCarbocycles'] = Descriptors.NumSaturatedCarbocycles(mol)
         descriptors['NumAromaticCarbocycles'] = Descriptors.NumAromaticCarbocycles(mol)
         descriptors['NumSaturatedHeterocycles'] = Descriptors.NumSaturatedHeterocycles(mol)
@@ -272,7 +272,7 @@ class MolecularFeaturizer:
         dim = self.fingerprint_bits if self.fingerprint_type != "maccs" else 167
         
         if self.include_descriptors:
-            dim += 21  # Number of descriptors
+            dim += 22  # Number of descriptors
         
         if self.include_fragments:
             dim += 45  # Number of fragment features
@@ -301,7 +301,7 @@ class DescriptorCalculator:
         descriptors.update({
             'RotBonds': Descriptors.NumRotatableBonds(mol),
             'AromaticRings': Descriptors.NumAromaticRings(mol),
-            'Fsp3': Descriptors.FractionCsp3(mol),
+            'Fsp3': Descriptors.FractionCSP3(mol),
             'NumChiralCenters': len(Chem.FindMolChiralCenters(mol, includeUnassigned=True))
         })
         return descriptors

@@ -10,8 +10,8 @@ __email__ = "your.email@example.com"
 __all__ = []
 
 try:
-    from .oracles import FEPOracle, DockingOracle, MLFEPOracle
-    __all__.extend(["FEPOracle", "DockingOracle", "MLFEPOracle"])
+    from .oracles import FEPOracle, DockingOracle, MLFEPOracle, BoltzOracle
+    __all__.extend(["FEPOracle", "DockingOracle", "MLFEPOracle", "BoltzOracle"])
 except ImportError:
     pass
 

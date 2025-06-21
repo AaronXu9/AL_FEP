@@ -204,7 +204,7 @@ class MLFEPOracle(BaseOracle):
             features.append(Descriptors.NumSaturatedRings(mol))
             features.append(Descriptors.NumHeteroatoms(mol))
             features.append(Descriptors.RingCount(mol))
-            features.append(Descriptors.FractionCsp3(mol))
+            features.append(Descriptors.FractionCSP3(mol))
             features.append(Descriptors.NumAliphaticCarbocycles(mol))
             features.append(Descriptors.NumAromaticCarbocycles(mol))
             

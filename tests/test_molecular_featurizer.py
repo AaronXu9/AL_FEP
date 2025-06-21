@@ -89,7 +89,7 @@ class TestMolecularFeaturizer:
                 expected_fp_size = featurizer.fingerprint_bits
             
             # Should include fingerprint + descriptors (default)
-            expected_total = expected_fp_size + 21  # 21 descriptors
+            expected_total = expected_fp_size + 22  # 22 descriptors
             assert len(features) == expected_total
     
     def test_feature_dimensions(self):
@@ -101,7 +101,7 @@ class TestMolecularFeaturizer:
             include_descriptors=True,
             include_fragments=False
         )
-        expected_dim = 1024 + 21  # fingerprint + descriptors
+        expected_dim = 1024 + 22  # fingerprint + descriptors
         assert featurizer.get_feature_dim() == expected_dim
         
         # MACCS with descriptors and fragments

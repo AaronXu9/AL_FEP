@@ -1,0 +1,14 @@
+{
+  "fep": {
+    "mock_mode": false,
+    "force_field": "amber14",
+    "water_model": "tip3p",
+    "num_lambda_windows": 5,
+    "simulation_time": 0.01,
+    "temperature": 298.15,
+    "pressure": 1.0,
+    "equilibration_steps": 100,
+    "production_steps": 500,
+    "output_frequency": 50
+  }
+}

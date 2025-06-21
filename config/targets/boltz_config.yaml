@@ -1,0 +1,47 @@
+# Boltz Oracle Configuration
+
+# Target configuration
+target: "7jvr"  # Target protein identifier
+
+# Boltz-specific settings
+boltz:
+  # Model parameters
+  model: "boltz2"                    # Model version: "boltz1" or "boltz2"
+  diffusion_samples: 1               # Number of diffusion samples (1-25, higher = more accurate but slower)
+  recycling_steps: 3                 # Number of recycling steps (3-10)
+  sampling_steps: 200                # Number of sampling steps (50-200)
+  
+  # MSA and potentials
+  use_msa_server: true               # Use MMSeqs2 server for MSA generation
+  use_potentials: false              # Use inference time potentials (improves physical quality)
+  
+  # Affinity prediction
+  predict_affinity: true             # Enable binding affinity prediction
+  affinity_mw_correction: false      # Apply molecular weight correction to affinity
+  diffusion_samples_affinity: 5     # Samples for affinity prediction (1-10)
+  
+  # Output settings
+  output_format: "pdb"               # Output format: "pdb" or "mmcif"
+  
+  # File paths
+  protein_sequence_file: "config/targets/7jvr_sequence.fasta"  # Path to protein sequence file
+  work_dir: "data/boltz_workspace"   # Working directory for temporary files
+  
+  # YAML file configuration (NEW FEATURES)
+  # Option 1: Use a specific YAML file path (will be reused for all predictions)
+  # yaml_file_path: "data/boltz_inputs/custom_input.yaml"
+  
+  # Option 2: Use a template directory (files will be named input_XXXX.yaml)
+  # yaml_template_dir: "data/boltz_inputs/templates"
+  
+  # Option 3: Keep YAML files instead of deleting them (useful for debugging)
+  preserve_yaml_files: false        # Set to true to keep YAML files
+  
+  # Advanced settings (optional)
+  step_scale: 1.5                    # Temperature for diffusion sampling (1.0-2.0)
+  max_msa_seqs: 8192                 # Maximum MSA sequences
+  subsample_msa: true                # Whether to subsample MSA
+  num_subsampled_msa: 1024          # Number of subsampled MSA sequences
+  
+# Cache settings
+cache: true                          # Enable result caching
