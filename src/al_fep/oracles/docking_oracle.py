@@ -128,111 +128,86 @@ class DockingOracle(BaseOracle):
             )
             raise RuntimeError("GNINA not available")
     
-    def _smiles_to_pdbqt(self, smiles: str, output_file: str) -> bool:
+    def _smiles_to_sdf(self, smiles: str, output_file: str) -> bool:
         """
-        Convert SMILES to PDBQT format using obabel directly.
+        Convert SMILES to SDF format using RDKit and obabel.
         
         Args:
             smiles: SMILES string
-            output_file: Output PDBQT file path
+            output_file: Output SDF file path
             
         Returns:
             True if successful, False otherwise
         """
         try:
-            # Use obabel directly for SMILES to PDBQT conversion
-            cmd = [
-                "obabel",
-                "-ismi",
-                "-opdbqt", 
-                "--gen3d",
-                "--partialcharge", "gasteiger",
-                "-O", output_file
-            ]
+            # Use RDKit for initial conversion and 3D generation
+            mol = Chem.MolFromSmiles(smiles)
+            if mol is None:
+                return False
             
-            # Run obabel with SMILES as input
-            result = subprocess.run(
-                cmd,
-                input=smiles,
-                text=True,
-                capture_output=True,
-                check=True
-            )
+            # Add hydrogens
+            mol = Chem.AddHs(mol)
             
-            # Check if output file was created
-            if os.path.exists(output_file) and os.path.getsize(output_file) > 0:
-                return True
-            else:
-                logger.warning(f"PDBQT file not created or empty: {output_file}")
+            # Generate 3D coordinates
+            if AllChem.EmbedMolecule(mol) != 0:
+                # If embedding fails, try with random coordinates
+                AllChem.EmbedMolecule(mol, useRandomCoords=True)
+            
+            # Optimize geometry
+            AllChem.MMFFOptimizeMolecule(mol)
+            
+            # Write to SDF file
+            writer = Chem.SDWriter(output_file)
+            writer.write(mol)
+            writer.close()
+            
+            return os.path.exists(output_file) and os.path.getsize(output_file) > 0
+            
+        except Exception as e:
+            logger.error(f"Error converting SMILES to SDF: {e}")
+            # Fallback to obabel method
+            try:
+                cmd = [
+                    "obabel",
+                    "-ismi",
+                    "-osdf", 
+                    "--gen3d",
+                    "-O", output_file
+                ]
+                
+                result = subprocess.run(
+                    cmd,
+                    input=smiles,
+                    text=True,
+                    capture_output=True,
+                    check=True
+                )
+                
+                return os.path.exists(output_file) and os.path.getsize(output_file) > 0
+                
+            except Exception as e2:
+                logger.error(f"Fallback conversion also failed: {e2}")
                 return False
                 
-        except subprocess.CalledProcessError as e:
-            logger.warning(f"Failed to convert SMILES to PDBQT: {e}")
-            return False
-        except Exception as e:
-            logger.error(f"Error in SMILES to PDBQT conversion: {e}")
-            return False
-
-    def _smiles_to_pdb(self, smiles: str, output_file: str) -> bool:
-        """
-        Convert SMILES to PDB format using obabel directly.
-        
-        Args:
-            smiles: SMILES string
-            output_file: Output PDB file path
-            
-        Returns:
-            True if successful, False otherwise
-        """
-        try:
-            # Use obabel directly for SMILES to PDB conversion
-            cmd = [
-                "obabel",
-                "-ismi",
-                "-opdb", 
-                "--gen3d",
-                "--partialcharge", "gasteiger",
-                "-O", output_file
-            ]
-            
-            # Run obabel with SMILES as input
-            result = subprocess.run(
-                cmd,
-                input=smiles,
-                text=True,
-                capture_output=True,
-                check=True
-            )
-            
-            # Check if output file was created
-            if os.path.exists(output_file) and os.path.getsize(output_file) > 0:
-                return True
-            else:
-                logger.warning(f"PDB file not created or empty: {output_file}")
-                return False
-                
-        except subprocess.CalledProcessError as e:
-            logger.warning(f"Failed to convert SMILES to PDB: {e}")
-            return False
-        except Exception as e:
-            logger.error(f"Error in SMILES to PDB conversion: {e}")
+        except Exception as e2:
+            logger.error(f"Fallback conversion also failed: {e2}")
             return False
     
     def _run_vina_docking(self, ligand_file: str) -> Optional[float]:
         """
-        Run AutoDock Vina docking.
+        Run AutoDock Vina docking with SDF input.
         
         Args:
-            ligand_file: Path to ligand PDBQT file
+            ligand_file: Path to ligand SDF file
             
         Returns:
             Best docking score or None if failed
         """
         try:
             # Create output file
-            output_file = ligand_file.replace(".pdbqt", "_out.pdbqt")
+            output_file = ligand_file.replace(".sdf", "_out.sdf")
             
-            # Run Vina (without --log parameter, capture stdout instead)
+            # Run Vina with SDF input and output
             cmd = [
                 "vina",
                 "--receptor", self.receptor_file,
@@ -259,8 +234,8 @@ class DockingOracle(BaseOracle):
                 logger.warning(f"Vina failed: {result.stderr}")
                 return None
             
-            # Parse the best score from the output PDBQT file (not stdout)
-            best_score = self._parse_vina_pdbqt_output(output_file)
+            # Parse the best score from the output SDF file
+            best_score = self._parse_vina_sdf_output(output_file)
             
             # Clean up output file
             if os.path.exists(output_file):
@@ -368,25 +343,64 @@ class DockingOracle(BaseOracle):
             logger.error(f"Error parsing Vina log: {e}")
             return None
     
-    def _run_gnina_docking(self, ligand_file: str) -> Optional[float]:
+    def _parse_vina_sdf_output(self, sdf_file: str) -> Optional[float]:
         """
-        Run GNINA docking.
+        Parse the best docking score from Vina SDF output file.
         
         Args:
-            ligand_file: Path to ligand PDB file (GNINA expects PDB format)
+            sdf_file: Path to Vina output SDF file
+            
+        Returns:
+            Best docking score or None if parsing failed
+        """
+        try:
+            # Use RDKit to read SDF file and extract score
+            supplier = Chem.SDMolSupplier(sdf_file)
+            best_score = None
+            
+            for mol in supplier:
+                if mol is None:
+                    continue
+                    
+                # Check for common Vina score property names
+                score = None
+                for prop_name in ['vina_affinity', 'VINA_AFFINITY', 'affinity', 'AFFINITY']:
+                    if mol.HasProp(prop_name):
+                        try:
+                            score = float(mol.GetProp(prop_name))
+                            break
+                        except (ValueError, TypeError):
+                            continue
+                
+                if score is not None:
+                    if best_score is None or score < best_score:  # Lower is better for Vina
+                        best_score = score
+            
+            return best_score
+            
+        except Exception as e:
+            logger.error(f"Error parsing Vina SDF output: {e}")
+            return None
+    
+    def _run_gnina_docking(self, ligand_file: str) -> Optional[float]:
+        """
+        Run GNINA docking with SDF input.
+        
+        Args:
+            ligand_file: Path to ligand SDF file
             
         Returns:
             Best CNNscore or None if failed
         """
         try:
-            # Create output file as SDF (GNINA's native format for CNN scores)
-            output_file = ligand_file.replace(".pdb", "_out.sdf")
+            # Create output file as SDF
+            output_file = ligand_file.replace(".sdf", "_out.sdf")
             
-            # Run GNINA with SDF output to get CNN scores
+            # Run GNINA with SDF input and output
             cmd = [
                 "/home/aoxu/projects/PoseBench/forks/GNINA/gnina",
                 "--receptor", self.receptor_file,
-                "--ligand", ligand_file,  # PDB file for ligand
+                "--ligand", ligand_file,  # SDF file for ligand
                 "--out", output_file,     # Output as SDF for CNN scores
                 "--center_x", str(self.center_x),
                 "--center_y", str(self.center_y), 
@@ -483,6 +497,126 @@ class DockingOracle(BaseOracle):
             logger.error(f"Error parsing GNINA SDF output: {e}")
             return None
 
+    def _evaluate_batch(self, smiles_list: list) -> list:
+        """
+        Evaluate a batch of molecules using docking for improved efficiency.
+        
+        This method processes multiple molecules in a single docking run,
+        which is more efficient than individual docking calls.
+        
+        Args:
+            smiles_list: List of SMILES strings to evaluate
+            
+        Returns:
+            List of dictionaries containing docking results
+        """
+        # Mock mode for testing
+        if self.mock_mode:
+            return [self._evaluate_single_mock(smiles) for smiles in smiles_list]
+        
+        # Check if receptor file exists upfront
+        if not os.path.exists(self.receptor_file):
+            error_result = {
+                "score": None,
+                "error": f"Receptor file not found: {self.receptor_file}",
+                "docking_score": None,
+                "binding_affinity": None,
+                "method": f"Docking ({self.engine.upper()})"
+            }
+            return [error_result.copy() for _ in smiles_list]
+        
+        # Create temporary directory for batch processing
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Convert all SMILES to SDF format and collect valid ones
+            ligand_files = []
+            smiles_indices = []  # Track which SMILES are valid
+            
+            for i, smiles in enumerate(smiles_list):
+                ligand_file = os.path.join(temp_dir, f"ligand_{i}.sdf")
+                conversion_success = self._smiles_to_sdf(smiles, ligand_file)
+                
+                if conversion_success:
+                    ligand_files.append(ligand_file)
+                    smiles_indices.append(i)
+            
+            # If no molecules were successfully converted, return errors
+            if not ligand_files:
+                error_result = {
+                    "score": None,
+                    "error": "Failed to convert any SMILES to SDF",
+                    "docking_score": None,
+                    "binding_affinity": None,
+                    "method": f"Docking ({self.engine.upper()})"
+                }
+                return [error_result.copy() for _ in smiles_list]
+            
+            # Run batch docking - simplified approach
+            docking_scores = self._run_batch_docking(ligand_files)
+            
+            # Process results
+            results = []
+            docking_idx = 0
+            
+            for i, smiles in enumerate(smiles_list):
+                if i in smiles_indices:
+                    # This molecule was successfully processed
+                    docking_score = docking_scores[docking_idx] if docking_idx < len(docking_scores) else None
+                    docking_idx += 1
+                    
+                    if docking_score is None:
+                        result = {
+                            "score": None,
+                            "error": "Docking failed",
+                            "docking_score": None,
+                            "binding_affinity": None,
+                            "method": f"Docking ({self.engine.upper()})"
+                        }
+                    else:
+                        # Convert to positive score (lower is better in docking)
+                        score = -docking_score
+                        result = {
+                            "score": score,
+                            "docking_score": docking_score,
+                            "binding_affinity": docking_score,
+                            "error": None,
+                            "method": f"Docking ({self.engine.upper()})"
+                        }
+                else:
+                    # This molecule failed conversion
+                    file_type = "PDBQT" if self.engine == "vina" else "PDB"
+                    result = {
+                        "score": None,
+                        "error": f"Failed to convert SMILES to {file_type}",
+                        "docking_score": None,
+                        "binding_affinity": None,
+                        "method": f"Docking ({self.engine.upper()})"
+                    }
+                
+                results.append(result)
+            
+            return results
+    
+    def _run_batch_docking(self, ligand_files: list) -> list:
+        """
+        Run batch docking for multiple ligands - simplified approach.
+        
+        Args:
+            ligand_files: List of SDF ligand file paths
+            
+        Returns:
+            List of docking scores
+        """
+        scores = []
+        for ligand_file in ligand_files:
+            if self.engine == "vina":
+                score = self._run_vina_docking(ligand_file)
+            elif self.engine == "gnina":
+                score = self._run_gnina_docking(ligand_file)
+            else:
+                score = None
+            scores.append(score)
+        return scores
+
     def _evaluate_single(self, smiles: str) -> Dict[str, Any]:
         """
         Evaluate a single molecule using docking.
@@ -499,28 +633,15 @@ class DockingOracle(BaseOracle):
         
         # Create temporary directory
         with tempfile.TemporaryDirectory() as temp_dir:
-            # Choose the appropriate file format based on engine
-            if self.engine == "vina":
-                ligand_file = os.path.join(temp_dir, "ligand.pdbqt")
-                conversion_success = self._smiles_to_pdbqt(smiles, ligand_file)
-            elif self.engine == "gnina":
-                ligand_file = os.path.join(temp_dir, "ligand.pdb")
-                conversion_success = self._smiles_to_pdb(smiles, ligand_file)
-            else:
-                return {
-                    "score": None,
-                    "error": f"Unsupported docking engine: {self.engine}",
-                    "docking_score": None,
-                    "binding_affinity": None,
-                    "method": f"Docking ({self.engine.upper()})"
-                }
+            # Convert SMILES to SDF format
+            ligand_file = os.path.join(temp_dir, "ligand.sdf")
+            conversion_success = self._smiles_to_sdf(smiles, ligand_file)
             
             # Check if conversion was successful
             if not conversion_success:
-                file_type = "PDBQT" if self.engine == "vina" else "PDB"
                 return {
                     "score": None,
-                    "error": f"Failed to convert SMILES to {file_type}",
+                    "error": "Failed to convert SMILES to SDF",
                     "docking_score": None,
                     "binding_affinity": None,
                     "method": f"Docking ({self.engine.upper()})"
@@ -618,4 +739,347 @@ class DockingOracle(BaseOracle):
                 "binding_affinity": None,
                 "method": f"Docking ({self.engine.upper()} Mock)"
             }
-                           
+    
+    def _run_vina_batch_docking(self, ligand_files: list) -> list:
+        """
+        Run AutoDock Vina docking for multiple ligands efficiently.
+        
+        Args:
+            ligand_files: List of paths to ligand PDBQT files
+            
+        Returns:
+            List of best docking scores (same order as input files)
+        """
+        scores = []
+        
+        # Process ligands in smaller batches to manage resources
+        batch_size = 10  # Adjust based on system resources
+        
+        for i in range(0, len(ligand_files), batch_size):
+            batch_files = ligand_files[i:i + batch_size]
+            batch_scores = self._run_vina_batch_chunk(batch_files)
+            scores.extend(batch_scores)
+        
+        return scores
+    
+    def _run_vina_batch_chunk(self, ligand_files: list) -> list:
+        """
+        Run Vina docking for a chunk of ligands.
+        
+        Args:
+            ligand_files: List of ligand PDBQT file paths (small batch)
+            
+        Returns:
+            List of docking scores
+        """
+        scores = []
+        
+        try:
+            # Create a temporary directory for batch outputs
+            temp_dir = os.path.dirname(ligand_files[0])
+            
+            # Process each ligand in the batch
+            processes = []
+            output_files = []
+            
+            # Start all docking processes in parallel
+            for ligand_file in ligand_files:
+                output_file = ligand_file.replace(".pdbqt", "_out.pdbqt")
+                output_files.append(output_file)
+                
+                cmd = [
+                    "vina",
+                    "--receptor", self.receptor_file,
+                    "--ligand", ligand_file,
+                    "--out", output_file,
+                    "--center_x", str(self.center_x),
+                    "--center_y", str(self.center_y), 
+                    "--center_z", str(self.center_z),
+                    "--size_x", str(self.size_x),
+                    "--size_y", str(self.size_y),
+                    "--size_z", str(self.size_z),
+                    "--exhaustiveness", str(self.exhaustiveness),
+                    "--num_modes", str(self.num_poses)
+                ]
+                
+                process = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True
+                )
+                processes.append(process)
+            
+            # Wait for all processes to complete
+            for i, (process, output_file) in enumerate(zip(processes, output_files)):
+                try:
+                    stdout, stderr = process.communicate(timeout=300)  # 5 minute timeout per ligand
+                    
+                    if process.returncode == 0:
+                        # Parse the score from output file
+                        score = self._parse_vina_pdbqt_output(output_file)
+                        scores.append(score)
+                    else:
+                        logger.warning(f"Vina failed for ligand {i}: {stderr}")
+                        scores.append(None)
+                    
+                    # Clean up output file
+                    if os.path.exists(output_file):
+                        os.remove(output_file)
+                        
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    logger.warning(f"Vina docking timed out for ligand {i}")
+                    scores.append(None)
+                    
+                    # Clean up output file
+                    if os.path.exists(output_file):
+                        os.remove(output_file)
+                
+        except Exception as e:
+            logger.error(f"Error in Vina batch docking: {e}")
+            # Return None for all ligands in case of batch failure
+            scores = [None] * len(ligand_files)
+        
+        return scores
+    
+    def _run_gnina_batch_docking(self, ligand_files: list) -> list:
+        """
+        Run GNINA docking for multiple ligands efficiently.
+        
+        GNINA doesn't support multi-ligand SDF input as effectively as expected,
+        so we use parallel processing instead for better efficiency.
+        
+        Args:
+            ligand_files: List of paths to ligand PDB files
+            
+        Returns:
+            List of best CNNscores (same order as input files)
+        """
+        scores = []
+        
+        # Process ligands in smaller batches to manage resources
+        batch_size = 5  # Smaller batches for GNINA
+        
+        for i in range(0, len(ligand_files), batch_size):
+            batch_files = ligand_files[i:i + batch_size]
+            batch_scores = self._run_gnina_batch_chunk(batch_files)
+            scores.extend(batch_scores)
+        
+        return scores
+    
+    def _run_gnina_batch_chunk(self, ligand_files: list) -> list:
+        """
+        Run GNINA docking for a chunk of ligands in parallel.
+        
+        Args:
+            ligand_files: List of ligand PDB file paths (small batch)
+            
+        Returns:
+            List of docking scores
+        """
+        scores = []
+        
+        try:
+            # Process each ligand in the batch
+            processes = []
+            output_files = []
+            
+            # Start all docking processes in parallel
+            for ligand_file in ligand_files:
+                output_file = ligand_file.replace(".pdb", "_out.sdf")
+                output_files.append(output_file)
+                
+                cmd = [
+                    "/home/aoxu/projects/PoseBench/forks/GNINA/gnina",
+                    "--receptor", self.receptor_file,
+                    "--ligand", ligand_file,
+                    "--out", output_file,
+                    "--center_x", str(self.center_x),
+                    "--center_y", str(self.center_y), 
+                    "--center_z", str(self.center_z),
+                    "--size_x", str(self.size_x),
+                    "--size_y", str(self.size_y),
+                    "--size_z", str(self.size_z),
+                    "--exhaustiveness", str(self.exhaustiveness),
+                    "--num_modes", str(self.num_poses),
+                    "--seed", "42",
+                    "--cnn_scoring", "rescore"
+                ]
+                
+                process = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True
+                )
+                processes.append(process)
+            
+            # Wait for all processes to complete
+            for i, (process, output_file) in enumerate(zip(processes, output_files)):
+                try:
+                    stdout, stderr = process.communicate(timeout=600)  # 10 minute timeout per ligand
+                    
+                    if process.returncode == 0:
+                        # Parse the score from output file
+                        score = self._parse_gnina_sdf_output(output_file)
+                        scores.append(score)
+                    else:
+                        logger.warning(f"GNINA failed for ligand {i}: {stderr}")
+                        scores.append(None)
+                    
+                    # Clean up output file
+                    if os.path.exists(output_file):
+                        os.remove(output_file)
+                        
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    logger.warning(f"GNINA docking timed out for ligand {i}")
+                    scores.append(None)
+                    
+                    # Clean up output file
+                    if os.path.exists(output_file):
+                        os.remove(output_file)
+                
+        except Exception as e:
+            logger.error(f"Error in GNINA batch docking: {e}")
+            # Return None for all ligands in case of batch failure  
+            scores = [None] * len(ligand_files)
+        
+        return scores
+    
+    def _create_combined_sdf(self, pdb_files: list, output_sdf: str) -> bool:
+        """
+        Convert multiple PDB files to a single SDF file for batch processing.
+        
+        Args:
+            pdb_files: List of PDB file paths
+            output_sdf: Output SDF file path
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            logger.debug(f"Creating combined SDF from {len(pdb_files)} PDB files")
+            
+            with open(output_sdf, 'w') as sdf_out:
+                for i, pdb_file in enumerate(pdb_files):
+                    logger.debug(f"Converting PDB file {i+1}/{len(pdb_files)}: {pdb_file}")
+                    
+                    # Check if PDB file exists and is not empty
+                    if not os.path.exists(pdb_file):
+                        logger.error(f"PDB file does not exist: {pdb_file}")
+                        continue
+                    
+                    if os.path.getsize(pdb_file) == 0:
+                        logger.error(f"PDB file is empty: {pdb_file}")
+                        continue
+                    
+                    # Convert each PDB to SDF format using obabel
+                    cmd = [
+                        "obabel",
+                        "-ipdb", pdb_file,
+                        "-osdf",
+                        "-O", "-"  # Output to stdout
+                    ]
+                    
+                    try:
+                        result = subprocess.run(
+                            cmd,
+                            capture_output=True,
+                            text=True,
+                            check=True,
+                            timeout=30  # 30 second timeout per conversion
+                        )
+                        
+                        if result.stdout:
+                            # Add molecule index as a property for tracking
+                            sdf_content = result.stdout
+                            # Insert molecule index before the $$$$
+                            sdf_content = sdf_content.replace(
+                                "$$$$", 
+                                f">  <MOLECULE_INDEX>\n{i}\n\n$$$$"
+                            )
+                            sdf_out.write(sdf_content)
+                            logger.debug(f"Successfully converted PDB {i+1}")
+                        else:
+                            logger.warning(f"No output from obabel for {pdb_file}")
+                    
+                    except subprocess.CalledProcessError as e:
+                        logger.error(f"obabel failed for {pdb_file}: {e.stderr}")
+                        continue
+                    except subprocess.TimeoutExpired:
+                        logger.error(f"obabel timed out for {pdb_file}")
+                        continue
+                    except Exception as e:
+                        logger.error(f"Error converting {pdb_file}: {e}")
+                        continue
+            
+            # Check if output file was created and has content
+            if os.path.exists(output_sdf) and os.path.getsize(output_sdf) > 0:
+                logger.debug(f"Combined SDF created successfully: {output_sdf}")
+                return True
+            else:
+                logger.error(f"Combined SDF file was not created or is empty: {output_sdf}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error creating combined SDF: {e}")
+            return False
+    
+    def _parse_gnina_batch_output(self, sdf_file: str, num_ligands: int) -> list:
+        """
+        Parse GNINA batch output SDF file to extract scores for each ligand.
+        
+        Args:
+            sdf_file: Path to GNINA output SDF file
+            num_ligands: Expected number of ligands
+            
+        Returns:
+            List of best CNNscores for each ligand
+        """
+        scores = [None] * num_ligands
+        
+        try:
+            # Group molecules by their original index
+            molecule_scores = {}
+            
+            supplier = Chem.SDMolSupplier(sdf_file)
+            for mol in supplier:
+                if mol is None:
+                    continue
+                
+                # Get molecule index
+                mol_idx = 0  # Default
+                if mol.HasProp('MOLECULE_INDEX'):
+                    try:
+                        mol_idx = int(mol.GetProp('MOLECULE_INDEX'))
+                    except (ValueError, TypeError):
+                        pass
+                
+                # Get CNNscore
+                cnn_score = None
+                if mol.HasProp('CNNscore'):
+                    try:
+                        cnn_score = float(mol.GetProp('CNNscore'))
+                    except (ValueError, TypeError):
+                        continue
+                elif mol.HasProp('cnn_score'):
+                    try:
+                        cnn_score = float(mol.GetProp('cnn_score'))
+                    except (ValueError, TypeError):
+                        continue
+                
+                if cnn_score is not None:
+                    if mol_idx not in molecule_scores or cnn_score > molecule_scores[mol_idx]:
+                        molecule_scores[mol_idx] = cnn_score
+            
+            # Extract scores in order
+            for i in range(num_ligands):
+                if i in molecule_scores:
+                    scores[i] = molecule_scores[i]
+                    
+        except Exception as e:
+            logger.error(f"Error parsing GNINA batch output: {e}")
+        
+        return scores

@@ -60,6 +60,35 @@ class BaseOracle(ABC):
         """
         pass
     
+    def _evaluate_batch(self, smiles_list: List[str]) -> List[Dict[str, Any]]:
+        """
+        Evaluate a batch of molecules.
+        
+        Default implementation evaluates molecules one by one.
+        Override this method in subclasses that support efficient batch processing.
+        
+        Args:
+            smiles_list: List of SMILES strings
+            
+        Returns:
+            List of evaluation results
+        """
+        results = []
+        for smiles in smiles_list:
+            result = self._evaluate_single(smiles)
+            results.append(result)
+        return results
+    
+    def supports_batch_processing(self) -> bool:
+        """
+        Check if this oracle supports efficient batch processing.
+        
+        Returns:
+            True if the oracle overrides _evaluate_batch for efficiency
+        """
+        # Check if _evaluate_batch has been overridden
+        return type(self)._evaluate_batch is not BaseOracle._evaluate_batch
+    
     def evaluate(self, molecules: Union[str, List[str]]) -> Union[Dict[str, Any], List[Dict[str, Any]]]:
         """
         Evaluate one or more molecules.
@@ -73,12 +102,16 @@ class BaseOracle(ABC):
         if isinstance(molecules, str):
             return self._evaluate_with_cache(molecules)
         
-        results = []
-        for smiles in molecules:
-            result = self._evaluate_with_cache(smiles)
-            results.append(result)
-        
-        return results
+        # For lists, decide between batch processing and individual evaluation
+        if len(molecules) > 1 and self.supports_batch_processing():
+            return self._evaluate_batch_with_cache(molecules)
+        else:
+            # Fall back to individual evaluation
+            results = []
+            for smiles in molecules:
+                result = self._evaluate_with_cache(smiles)
+                results.append(result)
+            return results
     
     def _evaluate_with_cache(self, smiles: str) -> Dict[str, Any]:
         """
@@ -139,6 +172,97 @@ class BaseOracle(ABC):
         logger.debug(f"Evaluated {canonical_smiles} in {evaluation_time:.2f}s")
         return result
     
+    def _evaluate_batch_with_cache(self, smiles_list: List[str]) -> List[Dict[str, Any]]:
+        """
+        Evaluate a batch of molecules with caching support.
+        
+        This method handles cache checking and SMILES validation before
+        calling the oracle's batch evaluation method.
+        """
+        # Validate and canonicalize all SMILES first
+        validated_smiles = []
+        results = []
+        indices_to_evaluate = []
+        
+        for i, smiles in enumerate(smiles_list):
+            # Validate SMILES
+            mol = Chem.MolFromSmiles(smiles)
+            if mol is None:
+                logger.warning(f"Invalid SMILES: {smiles}")
+                result = {
+                    "smiles": smiles,
+                    "score": None,
+                    "error": "Invalid SMILES",
+                    "oracle": self.name,
+                    "success": False,
+                    "evaluation_time": 0.0
+                }
+                results.append(result)
+                validated_smiles.append(None)
+                continue
+            
+            # Canonicalize SMILES
+            canonical_smiles = Chem.MolToSmiles(mol)
+            validated_smiles.append(canonical_smiles)
+            
+            # Check cache
+            if self.cache and canonical_smiles in self._cache:
+                logger.debug(f"Cache hit for {canonical_smiles}")
+                results.append(self._cache[canonical_smiles])
+            else:
+                # Mark for batch evaluation
+                results.append(None)  # Placeholder
+                indices_to_evaluate.append(i)
+        
+        # Batch evaluate molecules not in cache
+        if indices_to_evaluate:
+            smiles_to_evaluate = [validated_smiles[i] for i in indices_to_evaluate]
+            
+            start_time = time.time()
+            try:
+                batch_results = self._evaluate_batch(smiles_to_evaluate)
+                evaluation_time = time.time() - start_time
+                
+                # Post-process batch results
+                for j, (original_idx, result) in enumerate(zip(indices_to_evaluate, batch_results)):
+                    canonical_smiles = validated_smiles[original_idx]
+                    
+                    # Add metadata to result
+                    result["smiles"] = canonical_smiles
+                    result["oracle"] = self.name
+                    result["success"] = True
+                    result["evaluation_time"] = evaluation_time / len(batch_results)  # Approximate per-molecule time
+                    
+                    # Cache result
+                    if self.cache:
+                        self._cache[canonical_smiles] = result
+                    
+                    # Store in results
+                    results[original_idx] = result
+                
+                # Update statistics
+                self.call_count += len(batch_results)
+                self.total_time += evaluation_time
+                
+                logger.debug(f"Batch evaluated {len(batch_results)} molecules in {evaluation_time:.2f}s")
+                
+            except Exception as e:
+                logger.error(f"Error in batch evaluation: {str(e)}")
+                # Fill in error results for molecules that failed
+                for original_idx in indices_to_evaluate:
+                    canonical_smiles = validated_smiles[original_idx]
+                    error_result = {
+                        "smiles": canonical_smiles,
+                        "score": None,
+                        "error": str(e),
+                        "oracle": self.name,
+                        "success": False,
+                        "evaluation_time": 0.0
+                    }
+                    results[original_idx] = error_result
+        
+        return results
+
     def get_statistics(self) -> Dict[str, Any]:
         """
         Get oracle usage statistics.
