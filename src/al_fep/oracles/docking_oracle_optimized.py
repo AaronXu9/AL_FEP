@@ -17,11 +17,6 @@ try:
     import numpy as np
     RDKIT_AVAILABLE = True
 except ImportError:
-    # Create placeholder for type hints
-    Chem = None  # type: ignore
-    AllChem = None  # type: ignore
-    Descriptors = None  # type: ignore
-    np = None  # type: ignore
     RDKIT_AVAILABLE = False
     logging.warning("RDKit not available. Using fallback methods.")
 
@@ -109,7 +104,7 @@ class VinaEngine(DockingEngine):
             return None
             
         try:
-            supplier = Chem.SDMolSupplier(sdf_file)  # type: ignore
+            supplier = Chem.SDMolSupplier(sdf_file)
             for mol in supplier:
                 if mol is None:
                     continue
@@ -201,7 +196,7 @@ class GninaEngine(DockingEngine):
             return None
             
         try:
-            supplier = Chem.SDMolSupplier(sdf_file)  # type: ignore
+            supplier = Chem.SDMolSupplier(sdf_file)
             best_score = None
             
             for mol in supplier:
@@ -240,19 +235,19 @@ class MolecularConverter:
     def _rdkit_conversion(smiles: str, output_file: str) -> bool:
         """Use RDKit for conversion."""
         try:
-            mol = Chem.MolFromSmiles(smiles)  # type: ignore
+            mol = Chem.MolFromSmiles(smiles)
             if mol is None:
                 return False
             
-            mol = Chem.AddHs(mol)  # type: ignore
+            mol = Chem.AddHs(mol)
             
             # Generate 3D coordinates
-            if AllChem.EmbedMolecule(mol) != 0:  # type: ignore
-                AllChem.EmbedMolecule(mol, useRandomCoords=True)  # type: ignore
+            if AllChem.EmbedMolecule(mol) != 0:
+                AllChem.EmbedMolecule(mol, useRandomCoords=True)
             
-            AllChem.MMFFOptimizeMolecule(mol)  # type: ignore
+            AllChem.MMFFOptimizeMolecule(mol)
             
-            writer = Chem.SDWriter(output_file)  # type: ignore
+            writer = Chem.SDWriter(output_file)
             writer.write(mol)
             writer.close()
             
@@ -331,7 +326,7 @@ class DockingOracle(BaseOracle):
         # Initialize docking engine
         if not self.mock_mode:
             self.engine = self._create_engine()
-            if self.engine and not self.engine.check_installation():
+            if not self.engine.check_installation():
                 raise RuntimeError(f"{self.engine_name} not available")
         else:
             self.engine = None
@@ -362,12 +357,9 @@ class DockingOracle(BaseOracle):
                 }
             
             # Perform docking
-            if self.engine:
-                score = self.engine.dock(
-                    ligand_file, self.receptor_file, **self.docking_params
-                )
-            else:
-                score = None
+            score = self.engine.dock(
+                ligand_file, self.receptor_file, **self.docking_params
+            )
             
             return {
                 "smiles": smiles,
@@ -407,13 +399,13 @@ class DockingOracle(BaseOracle):
         """Generate mock docking scores for testing."""
         try:
             if RDKIT_AVAILABLE:
-                mol = Chem.MolFromSmiles(smiles)  # type: ignore
+                mol = Chem.MolFromSmiles(smiles)
                 if mol is None:
                     return {"smiles": smiles, "score": None, "error": "Invalid SMILES"}
                 
                 # Simple score based on molecular properties
-                mw = Descriptors.MolWt(mol)  # type: ignore
-                logp = Descriptors.MolLogP(mol)  # type: ignore
+                mw = Descriptors.MolWt(mol)
+                logp = Descriptors.MolLogP(mol)
                 
                 # Mock score: prefer drug-like molecules
                 mock_score = -8.0  # Base score
@@ -421,7 +413,7 @@ class DockingOracle(BaseOracle):
                 mock_score += max(0, (5 - abs(logp)) / 2)  # Prefer LogP near 0-3
                 
                 # Add some noise
-                mock_score += np.random.normal(0, 0.5)  # type: ignore
+                mock_score += np.random.normal(0, 0.5)
                 
             else:
                 # Fallback without RDKit

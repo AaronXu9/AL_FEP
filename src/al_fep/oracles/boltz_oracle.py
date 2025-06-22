@@ -8,7 +8,7 @@ import yaml
 import subprocess
 import tempfile
 import shutil
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Tuple
 import logging
 from pathlib import Path
 
@@ -414,7 +414,7 @@ class BoltzOracle(BaseOracle):
                 except Exception as e:
                     logger.warning(f"Failed to clean up temp directory {work_dir}: {e}")
     
-    def _get_yaml_file_path(self, smiles: str) -> tuple[str, str, bool]:
+    def _get_yaml_file_path(self, smiles: str) -> Tuple[str, str, bool]:
         """
         Determine YAML file path and working directory based on configuration.
         
