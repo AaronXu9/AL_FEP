@@ -172,6 +172,7 @@ data/external/*
 !data/raw/.gitkeep
 !data/processed/.gitkeep
 !data/external/.gitkeep
+data/LIT-PCBA/*
 
 # Model checkpoints and outputs
 models/checkpoints/
