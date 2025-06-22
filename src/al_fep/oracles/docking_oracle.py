@@ -10,6 +10,7 @@ import logging
 from pathlib import Path
 import concurrent.futures
 from contextlib import contextmanager
+import time
 
 try:
     from rdkit import Chem
@@ -81,7 +82,7 @@ class VinaEngine(DockingEngine):
         
         try:
             result = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=300
+                cmd, capture_output=False, text=True, timeout=300
             )
             
             if result.returncode != 0:
@@ -168,12 +169,12 @@ class GninaEngine(DockingEngine):
             "--size_z", str(kwargs.get("size_z", 20.0)),
             "--exhaustiveness", str(kwargs.get("exhaustiveness", 8)),
             "--num_modes", str(kwargs.get("num_poses", 9)),
-            "--cnn_scoring"
+            "--cnn_scoring", "rescore"      
         ]
         
         try:
             result = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=600
+                cmd, capture_output=False, text=True, timeout=600
             )
             
             if result.returncode != 0:
@@ -235,6 +236,63 @@ class MolecularConverter:
             return MolecularConverter._rdkit_conversion(smiles, output_file)
         else:
             return MolecularConverter._obabel_conversion(smiles, output_file)
+    
+    @staticmethod
+    def is_sdf_file(input_str: str) -> bool:
+        """Check if input string is a path to an SDF file."""
+        if not isinstance(input_str, str):
+            return False
+        
+        # Check if it looks like a file path and exists
+        if os.path.exists(input_str) and input_str.lower().endswith('.sdf'):
+            return True
+        
+        # Check if it's a multiline SDF content string
+        lines = input_str.strip().split('\n')
+        if len(lines) > 10:  # SDF files are typically multi-line
+            # Look for SDF format indicators
+            for line in lines:
+                if line.strip() in ['$$$$', 'M  END'] or line.startswith('  '):
+                    return True
+        
+        return False
+    
+    @staticmethod
+    def validate_sdf_file(sdf_path: str) -> bool:
+        """Validate that an SDF file is readable and contains molecules."""
+        if not RDKIT_AVAILABLE:
+            # Basic file existence check without RDKit
+            return os.path.exists(sdf_path) and sdf_path.lower().endswith('.sdf')
+        
+        try:
+            supplier = Chem.SDMolSupplier(sdf_path)  # type: ignore
+            # Check if we can read at least one molecule
+            for mol in supplier:
+                if mol is not None:
+                    return True
+            return False
+        except Exception as e:
+            logger.error(f"Error validating SDF file {sdf_path}: {e}")
+            return False
+    
+    @staticmethod
+    def extract_smiles_from_sdf(sdf_path: str) -> List[str]:
+        """Extract SMILES strings from an SDF file for identification."""
+        smiles_list = []
+        if not RDKIT_AVAILABLE:
+            logger.warning("RDKit not available. Cannot extract SMILES from SDF.")
+            return smiles_list
+        
+        try:
+            supplier = Chem.SDMolSupplier(sdf_path)  # type: ignore
+            for mol in supplier:
+                if mol is not None:
+                    smiles = Chem.MolToSmiles(mol)  # type: ignore
+                    smiles_list.append(smiles)
+        except Exception as e:
+            logger.error(f"Error extracting SMILES from SDF {sdf_path}: {e}")
+        
+        return smiles_list
     
     @staticmethod
     def _rdkit_conversion(smiles: str, output_file: str) -> bool:
@@ -308,14 +366,11 @@ class DockingOracle(BaseOracle):
         docking_config = self.config.get("docking", {})
         self.engine_name = docking_config.get("engine", "vina").lower()
         self.mock_mode = docking_config.get("mock_mode", False)
-        
-        # Receptor file
         self.receptor_file = (
-            receptor_file or 
-            docking_config.get("receptor_file") or 
-            f"data/targets/{self.target}/{self.target}_prepared.pdbqt"
+            receptor_file or
+            docking_config.get("receptor_file", "data/targets/test/test_oracle.pdb")
         )
-        
+
         # Docking parameters
         self.docking_params = {
             "center_x": docking_config.get("center_x", 0.0),
@@ -348,17 +403,26 @@ class DockingOracle(BaseOracle):
             raise ValueError(f"Unsupported docking engine: {self.engine_name}")
     
     def _evaluate_single(self, smiles: str) -> Dict[str, Any]:
-        """Evaluate a single molecule."""
+        """Evaluate a single molecule (SMILES string or SDF file path)."""
         if self.mock_mode:
             return self._mock_evaluation(smiles)
         
+        # Determine input type
+        if MolecularConverter.is_sdf_file(smiles):
+            return self._evaluate_sdf_file(smiles)
+        else:
+            return self._evaluate_smiles(smiles)
+    
+    def _evaluate_smiles(self, smiles: str) -> Dict[str, Any]:
+        """Evaluate a single SMILES string."""
         # Convert SMILES to SDF
         with temporary_file(".sdf") as ligand_file:
             if not MolecularConverter.smiles_to_sdf(smiles, ligand_file):
                 return {
+                    "input": smiles,
                     "smiles": smiles,
                     "score": None,
-                    "error": "Conversion failed"
+                    "error": "SMILES conversion failed"
                 }
             
             # Perform docking
@@ -370,13 +434,44 @@ class DockingOracle(BaseOracle):
                 score = None
             
             return {
+                "input": smiles,
                 "smiles": smiles,
                 "score": score,
                 "error": None if score is not None else "Docking failed"
             }
     
+    def _evaluate_sdf_file(self, sdf_path: str) -> Dict[str, Any]:
+        """Evaluate an SDF file directly."""
+        # Validate the SDF file
+        if not MolecularConverter.validate_sdf_file(sdf_path):
+            return {
+                "input": sdf_path,
+                "smiles": None,
+                "score": None,
+                "error": "Invalid SDF file"
+            }
+        
+        # Extract SMILES for identification (optional)
+        smiles_list = MolecularConverter.extract_smiles_from_sdf(sdf_path)
+        representative_smiles = smiles_list[0] if smiles_list else None
+        
+        # Perform docking directly with the SDF file
+        if self.engine:
+            score = self.engine.dock(
+                sdf_path, self.receptor_file, **self.docking_params
+            )
+        else:
+            score = None
+        
+        return {
+            "input": sdf_path,
+            "smiles": representative_smiles,
+            "score": score,
+            "error": None if score is not None else "Docking failed"
+        }
+    
     def _evaluate_batch(self, smiles_list: List[str]) -> List[Dict[str, Any]]:
-        """Evaluate a batch of molecules with parallel processing."""
+        """Evaluate a batch of molecules (SMILES strings or SDF file paths) with parallel processing."""
         if self.mock_mode:
             return [self._mock_evaluation(smiles) for smiles in smiles_list]
         
@@ -384,19 +479,20 @@ class DockingOracle(BaseOracle):
         max_workers = min(4, len(smiles_list))  # Limit parallel processes
         
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-            future_to_smiles = {
+            future_to_input = {
                 executor.submit(self._evaluate_single, smiles): smiles 
                 for smiles in smiles_list
             }
             
-            for future in concurrent.futures.as_completed(future_to_smiles):
+            for future in concurrent.futures.as_completed(future_to_input):
                 try:
                     result = future.result(timeout=600)  # 10 minute timeout
                     results.append(result)
                 except Exception as e:
-                    smiles = future_to_smiles[future]
+                    smiles = future_to_input[future]
                     results.append({
-                        "smiles": smiles,
+                        "input": smiles,
+                        "smiles": smiles if not MolecularConverter.is_sdf_file(smiles) else None,
                         "score": None,
                         "error": f"Evaluation failed: {e}"
                     })
@@ -404,12 +500,35 @@ class DockingOracle(BaseOracle):
         return results
     
     def _mock_evaluation(self, smiles: str) -> Dict[str, Any]:
-        """Generate mock docking scores for testing."""
+        """Generate mock docking scores for testing (handles both SMILES and SDF)."""
         try:
+            # Handle SDF files
+            if MolecularConverter.is_sdf_file(smiles):
+                smiles_list = MolecularConverter.extract_smiles_from_sdf(smiles)
+                if smiles_list:
+                    # Use the first molecule for mock evaluation
+                    actual_smiles = smiles_list[0]
+                    input_data = smiles  # Keep original SDF path
+                else:
+                    return {
+                        "input": smiles,
+                        "smiles": None,
+                        "score": None,
+                        "error": "Cannot extract SMILES from SDF"
+                    }
+            else:
+                actual_smiles = smiles
+                input_data = smiles
+            
             if RDKIT_AVAILABLE:
-                mol = Chem.MolFromSmiles(smiles)  # type: ignore
+                mol = Chem.MolFromSmiles(actual_smiles)  # type: ignore
                 if mol is None:
-                    return {"smiles": smiles, "score": None, "error": "Invalid SMILES"}
+                    return {
+                        "input": input_data,
+                        "smiles": actual_smiles,
+                        "score": None,
+                        "error": "Invalid SMILES"
+                    }
                 
                 # Simple score based on molecular properties
                 mw = Descriptors.MolWt(mol)  # type: ignore
@@ -425,17 +544,19 @@ class DockingOracle(BaseOracle):
                 
             else:
                 # Fallback without RDKit
-                mock_score = -8.0 + hash(smiles) % 100 / 50.0  # Reproducible but varied
+                mock_score = -8.0 + hash(actual_smiles) % 100 / 50.0  # Reproducible but varied
             
             return {
-                "smiles": smiles,
+                "input": input_data,
+                "smiles": actual_smiles,
                 "score": round(mock_score, 2),
                 "error": None
             }
             
         except Exception as e:
             return {
-                "smiles": smiles,
+                "input": smiles,
+                "smiles": smiles if not MolecularConverter.is_sdf_file(smiles) else None,
                 "score": None,
                 "error": f"Mock evaluation failed: {e}"
             }
@@ -450,3 +571,61 @@ class DockingOracle(BaseOracle):
             "docking_params": self.docking_params
         })
         return stats
+    
+    def dock_sdf_file(self, sdf_path: str) -> Dict[str, Any]:
+        """
+        Convenience method to dock an SDF file directly.
+        
+        Args:
+            sdf_path: Path to the SDF file
+            
+        Returns:
+            Docking result dictionary
+        """
+        result = self.evaluate(sdf_path)
+        return result if isinstance(result, dict) else result[0]
+
+    def _evaluate_with_cache(self, smiles: str) -> Dict[str, Any]:
+        """
+        Evaluate a molecule with caching support.
+        Override base class to handle SDF files.
+        """
+        # Check cache first
+        if self.cache and smiles in self._cache:
+            logger.debug(f"Cache hit for {smiles}")
+            return self._cache[smiles]
+
+        # Handle SDF files differently from SMILES
+        if MolecularConverter.is_sdf_file(smiles):
+            # For SDF files, skip SMILES validation and use file path as key
+            start_time = time.time()
+            try:
+                result = self._evaluate_single(smiles)
+                result["input"] = smiles
+                result["oracle"] = self.name
+                result["success"] = True
+                
+                # Update statistics
+                self.call_count += 1
+                evaluation_time = time.time() - start_time
+                self.total_time += evaluation_time
+                
+                # Cache the result
+                if self.cache:
+                    self._cache[smiles] = result
+
+                return result
+                
+            except Exception as e:
+                logger.error(f"Error evaluating SDF file {smiles}: {e}")
+                return {
+                    "input": smiles,
+                    "smiles": None,
+                    "score": None,
+                    "error": str(e),
+                    "oracle": self.name,
+                    "success": False
+                }
+        else:
+            # Use parent method for SMILES strings
+            return super()._evaluate_with_cache(smiles)

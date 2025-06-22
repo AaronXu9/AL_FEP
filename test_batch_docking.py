@@ -10,7 +10,8 @@ import logging
 from typing import List, Dict, Any
 
 # Add the src directory to the Python path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'src'))
+
 
 from al_fep.oracles.docking_oracle import DockingOracle
 
@@ -36,8 +37,8 @@ def test_batch_vs_single_docking():
     # Configuration for mock testing (so we don't need actual docking software)
     config = {
         "docking": {
-            "engine": "vina",
-            "mock_mode": True,  # Enable mock mode for testing
+            "engine": "gnina",  
+            "mock_mode": False,  # Enable mock mode for testing
             "center_x": 0.0,
             "center_y": 0.0, 
             "center_z": 0.0,
@@ -45,7 +46,9 @@ def test_batch_vs_single_docking():
             "size_y": 20.0,
             "size_z": 20.0,
             "exhaustiveness": 8,
-            "num_poses": 3
+            "num_poses": 3,
+            "receptor_file": "./data/test_oracle.pdb",
+            "gnina_path": "/home/aoxu/projects/PoseBench/forks/GNINA/gnina",  # Path to GNINA executable
         }
     }
     
@@ -61,7 +64,7 @@ def test_batch_vs_single_docking():
     for smiles in test_smiles:
         result = oracle.evaluate(smiles)  # This returns a single dict
         single_results.append(result)
-        print(f"SMILES: {smiles[:20]:<20} Score: {result.get('score', 'N/A')}")
+        print(f"SMILES: {smiles[:20]:<20} CNNscore: {result.get('CNNscore', 'N/A')}")
     single_time = time.time() - start_time
     print(f"Single evaluation time: {single_time:.2f}s")
     
@@ -75,8 +78,8 @@ def test_batch_vs_single_docking():
     # Compare results
     print("\n--- Results Comparison ---")
     for i, (single, batch, smiles) in enumerate(zip(single_results, batch_results, test_smiles)):
-        single_score = single.get('score')
-        batch_score = batch.get('score')
+        single_score = single.get('CNNscore')
+        batch_score = batch.get('CNNscore')
         match = "✓" if single_score == batch_score else "✗"
         print(f"{i+1}. {match} Single: {single_score}, Batch: {batch_score} ({smiles[:30]})")
     
@@ -108,19 +111,21 @@ def test_error_handling():
     
     config = {
         "docking": {
-            "engine": "vina",
-            "mock_mode": True,
+            "engine": "gnina",
+            "mock_mode": False,
             "center_x": 0.0,
             "center_y": 0.0, 
             "center_z": 0.0,
             "size_x": 20.0,
             "size_y": 20.0,
-            "size_z": 20.0
+            "size_z": 20.0,
+            "receptor_file": "./data/test_oracle.pdb",
+            "gnina_path": "/home/aoxu/projects/PoseBench/forks/GNINA/gnina",
         }
     }
-    
-    oracle = DockingOracle(target="test", config=config)
-    
+
+    oracle = DockingOracle(target="test", receptor_file="./data/test_oracle.pdb", config=config)
+
     print("Testing batch evaluation with mixed valid/invalid SMILES:")
     results = oracle.evaluate(invalid_smiles)  # This returns a list of dicts
     
@@ -152,7 +157,9 @@ def test_different_engines():
                 "center_z": 0.0,
                 "size_x": 20.0,
                 "size_y": 20.0,
-                "size_z": 20.0
+                "size_z": 20.0,
+                "receptor_file": "./data/test_oracle.pdb",
+                "gnina_path": "/home/aoxu/projects/PoseBench/forks/GNINA/gnina" if engine == "gnina" else None,
             }
         }
         
